@@ -68,12 +68,22 @@ public sealed class CommerceDbContext : DbContext
             x.Property(y => y.Key).HasMaxLength(200);
             x.HasIndex(y => y.Key).IsUnique();
         });
+        
+
         b.Entity<Order>(x =>
         {
+            x.HasKey(o => o.Id);
+
+            // رابطه با TelegramUser (با استفاده از کلید اصلی غیرمعمول TelegramId)
+            x.HasOne(o => o.TelegramUser)
+                .WithMany()  // اگر TelegramUser خاصیتی مثل Orders داره، بنویس .WithMany(u => u.Orders)
+                .HasForeignKey(o => o.TelegramUserId)
+                .HasPrincipalKey(u => u.TelegramId);   // ✅ بدون <TelegramUser>
+
+            // رابطه با Plan
             x.HasOne(o => o.Plan)
-                .WithMany(p => p.Orders) // فرض بر این است که Plan یک List<Order> دارد
-                .HasForeignKey(o => o.PlanId)
-                .OnDelete(DeleteBehavior.Restrict);
+                .WithMany(p => p.Orders)
+                .HasForeignKey(o => o.PlanId);
         });
     
         b.Entity<Plan>(x =>

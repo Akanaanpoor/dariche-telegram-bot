@@ -14,7 +14,7 @@ public sealed class Order
     public DateTimeOffset? PaidAtUtc { get; set; }
     public DateTimeOffset? CompletedAtUtc { get; set; }
     
-    // Navigation properties
-    public TelegramUser? TelegramUser { get; set; }
     public Plan? Plan { get; set; }
+    
+    public TelegramUser? TelegramUser { get; set; }
 }

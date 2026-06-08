@@ -30,27 +30,35 @@ public static class AgentEndpoints
             if (!auth.Ok) return Results.Unauthorized();
             var agentId = auth.Agent!.AgentId;
             var job = await db.ProvisioningJobs
-                .Where(x => x.AgentId == agentId && x.Status == ProvisioningJobStatus.Pending)
+                .Where(x => x.TargetAgentId == agentId && x.Status == ProvisioningJobStatus.Pending)
                 .OrderBy(x => x.CreatedAtUtc)
                 .FirstOrDefaultAsync(ct);
+
             if (job is null) return Results.NoContent();
+
             job.Status = ProvisioningJobStatus.Picked;
             job.Attempt += 1;
             job.PickedAtUtc = DateTimeOffset.UtcNow;
             await db.SaveChangesAsync(ct);
-            return Results.Ok(new AgentJobEnvelope(job.Id, job.Type, job.PayloadJson, job.CreatedAtUtc, job.Attempt));
+
+            return Results.Ok(new AgentJobEnvelope(job.Id, job.Type.ToString(), job.PayloadJson, job.CreatedAtUtc, job.Attempt));
         });
 
         g.MapPost("/jobs/{jobId:guid}/result", async (Guid jobId, HttpRequest req, CommerceDbContext db, AgentJobResultRequest body, CancellationToken ct) =>
         {
             var auth = await AuthorizeAsync(req, db, ct);
             if (!auth.Ok) return Results.Unauthorized();
-            var job = await db.ProvisioningJobs.FirstOrDefaultAsync(x => x.Id == jobId && x.AgentId == auth.Agent!.AgentId, ct);
+
+            var job = await db.ProvisioningJobs.FirstOrDefaultAsync(x => x.Id == jobId && x.TargetAgentId == auth.Agent!.AgentId, ct);
             if (job is null) return Results.NotFound(new AgentJobResultResponse(false, "job not found"));
+
             job.ResultJson = body.ResultJson;
             job.ErrorMessage = body.ErrorMessage;
             job.FinishedAtUtc = DateTimeOffset.UtcNow;
-            job.Status = string.Equals(body.Status, "Succeeded", StringComparison.OrdinalIgnoreCase) ? ProvisioningJobStatus.Succeeded : ProvisioningJobStatus.Failed;
+            job.Status = string.Equals(body.Status, "Succeeded", StringComparison.OrdinalIgnoreCase)
+                ? ProvisioningJobStatus.Succeeded
+                : ProvisioningJobStatus.Failed;
+
             await db.SaveChangesAsync(ct);
             return Results.Ok(new AgentJobResultResponse(true, "accepted"));
         });
@@ -69,6 +77,7 @@ public static class AgentEndpoints
         var timestamp = tsValues.ToString();
         var nonce = nonceValues.ToString();
         var signature = sigValues.ToString();
+
         if (!long.TryParse(timestamp, out var unix)) return (false, null);
         var age = Math.Abs(DateTimeOffset.UtcNow.ToUnixTimeSeconds() - unix);
         if (age > 300) return (false, null);
@@ -80,6 +89,7 @@ public static class AgentEndpoints
         using var sr = new StreamReader(req.Body, leaveOpen: true);
         var body = await sr.ReadToEndAsync(ct);
         req.Body.Position = 0;
+
         var expected = HmacSigner.ComputeSignature(agent.Secret, req.Method, req.Path + req.QueryString, timestamp, nonce, body);
         return HmacSigner.FixedTimeEquals(expected, signature) ? (true, agent) : (false, null);
     }

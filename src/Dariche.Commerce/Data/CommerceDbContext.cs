@@ -17,26 +17,72 @@ public sealed class CommerceDbContext : DbContext
     public DbSet<Subscription> Subscriptions => Set<Subscription>();
     public DbSet<ProvisioningJob> ProvisioningJobs => Set<ProvisioningJob>();
     public DbSet<AgentNode> Agents => Set<AgentNode>();
-
     public DbSet<Settings> Settings => Set<Settings>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
-        b.Entity<TelegramUser>().HasKey(x => x.TelegramId);
-        b.Entity<Plan>().HasIndex(x => x.Code).IsUnique();
-        b.Entity<InboundGroup>().HasIndex(x => x.Code).IsUnique();
-        b.Entity<AgentNode>().HasKey(x => x.AgentId);
-        b.Entity<Subscription>().HasIndex(x => x.ClientEmail).IsUnique();
-        b.Entity<ProvisioningJob>().HasIndex(x => new { x.TargetAgentId, x.Status, x.CreatedAtUtc });
+        b.Entity<TelegramUser>(x =>
+        {
+            x.HasKey(y => y.Id);
+            x.HasIndex(y => y.TelegramId).IsUnique();
+            x.Property(y => y.TelegramId).IsRequired();
+        });
+        
+        b.Entity<Plan>(x =>
+        {
+            x.HasKey(y => y.Id);
+            x.HasIndex(y => y.Code).IsUnique();
+        });
+        
+        b.Entity<InboundGroup>(x =>
+        {
+            x.HasKey(y => y.Id);
+            x.HasIndex(y => y.Code).IsUnique();
+            x.HasMany(y => y.Items)
+                .WithOne(y => y.InboundGroup)
+                .HasForeignKey(y => y.InboundGroupId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+        
+        b.Entity<AgentNode>(x =>
+        {
+            x.HasKey(y => y.AgentId);
+        });
+        
+        b.Entity<Subscription>(x =>
+        {
+            x.HasKey(y => y.Id);
+            x.HasIndex(y => y.ClientEmail).IsUnique();
+        });
+        
+        b.Entity<ProvisioningJob>(x =>
+        {
+            x.HasKey(y => y.Id);
+            x.HasIndex(y => new { y.TargetAgentId, y.Status, y.CreatedAtUtc });
+            x.HasOne(y => y.Order)
+                .WithMany()
+                .HasForeignKey(y => y.OrderId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+        
+        b.Entity<Order>(x =>
+        {
+            x.HasKey(y => y.Id);
+            x.HasOne(y => y.TelegramUser)
+                .WithMany()
+                .HasForeignKey(y => y.TelegramUserId)
+                .HasPrincipalKey(y => y.TelegramId);
+                
+            x.HasOne(y => y.Plan)
+                .WithMany()
+                .HasForeignKey(y => y.PlanId);
+        });
+        
         b.Entity<Settings>(x =>
         {
             x.HasKey(y => y.Id);
-
-            x.Property(y => y.Key)
-                .HasMaxLength(200);
-
-            x.HasIndex(y => y.Key)
-                .IsUnique();
+            x.Property(y => y.Key).HasMaxLength(200);
+            x.HasIndex(y => y.Key).IsUnique();
         });
     }
 }

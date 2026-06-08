@@ -1,26 +1,35 @@
 namespace Dariche.Shared.Agent;
 
+// Heartbeat Request - ساده شده
 public sealed record AgentHeartbeatRequest(
-    string AgentId,
     string Hostname,
-    string Version,
-    DateTimeOffset UtcNow,
-    object? Metrics = null);
+    string Version
+);
 
-public sealed record AgentHeartbeatResponse(bool Ok, string Message, int PollIntervalSeconds);
+public sealed record AgentHeartbeatResponse(
+    bool Ok,
+    string Message,
+    int IntervalSeconds
+);
 
+// Job Envelope
 public sealed record AgentJobEnvelope(
     Guid JobId,
     string Type,
     string PayloadJson,
-    DateTimeOffset CreatedAtUtc,
-    int Attempt);
+    DateTimeOffset CreatedAt,
+    int Attempt
+);
 
+// Job Result Request - با Guid
 public sealed record AgentJobResultRequest(
-    string AgentId,
-    Guid JobId,
     string Status,
     string? ResultJson,
-    string? ErrorMessage);
+    string? ErrorMessage
+);
 
-public sealed record AgentJobResultResponse(bool Ok, string Message);
+// Job Result Response
+public sealed record AgentJobResultResponse(
+    bool Accepted,
+    string Message
+);

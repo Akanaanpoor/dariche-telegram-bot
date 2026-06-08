@@ -3,8 +3,8 @@ namespace Dariche.IranAgent.Options;
 public sealed class AgentOptions
 {
     public string AgentId { get; set; } = "iran-main";
-    public string AgentSecret { get; set; } = "CHANGE_ME_AGENT_SECRET";
-    public string CommerceBaseUrl { get; set; } = "https://commerce.example.com";
+    public string AgentSecret { get; set; } = "";
+    public string CommerceBaseUrl { get; set; } = "https://localhost:7001";
     public int PollIntervalSeconds { get; set; } = 5;
 }
 

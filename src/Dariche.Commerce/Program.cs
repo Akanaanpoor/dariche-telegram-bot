@@ -6,27 +6,49 @@ using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Configuration.AddJsonFile("appsettings.json", optional: false);
+builder.Configuration.AddEnvironmentVariables();
+
+// Database
+builder.Services.AddDbContext<CommerceDbContext>(options =>
+    options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
+
+// Options - مهم
 builder.Services.Configure<BotOptions>(builder.Configuration.GetSection("Bot"));
 builder.Services.Configure<AgentOptions>(builder.Configuration.GetSection("Agent"));
 
-var conn = builder.Configuration.GetConnectionString("Default")
-           ?? "Host=localhost;Port=5432;Database=dariche_commerce;Username=dariche;Password=dariche";
-builder.Services.AddDbContext<CommerceDbContext>(opt => opt.UseNpgsql(conn));
-
+// Services
 builder.Services.AddHttpClient<TelegramClient>();
+builder.Services.AddMemoryCache();
+builder.Services.AddScoped<ISettingsService, SettingsService>();
 builder.Services.AddScoped<ProvisioningJobFactory>();
-builder.Services.AddHostedService<TelegramBotWorker>();
+
+// Hosted Services
+// builder.Services.AddHostedService<TelegramBotWorker>();
 builder.Services.AddHostedService<ProvisioningResultDispatcher>();
+
+// API
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
+// Database
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<CommerceDbContext>();
-    await SeedData.InitializeAsync(db, app.Configuration);
+    var cfg = scope.ServiceProvider.GetRequiredService<IConfiguration>();
+    await db.Database.EnsureCreatedAsync();
+    await SeedData.InitializeAsync(db, cfg);
 }
 
-app.MapGet("/health", () => Results.Ok(new { ok = true, service = "dariche-commerce", utc = DateTimeOffset.UtcNow }));
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
+
+app.UseHttpsRedirection();
 app.MapAgentEndpoints();
 
 app.Run();

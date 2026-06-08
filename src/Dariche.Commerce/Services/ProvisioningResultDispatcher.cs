@@ -19,6 +19,8 @@ public sealed class ProvisioningResultDispatcher : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        _logger.LogInformation("Provisioning result dispatcher started");
+        
         while (!stoppingToken.IsCancellationRequested)
         {
             try
@@ -29,6 +31,7 @@ public sealed class ProvisioningResultDispatcher : BackgroundService
             {
                 _logger.LogError(ex, "Provisioning result dispatcher failed");
             }
+            
             await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
         }
     }
@@ -47,22 +50,35 @@ public sealed class ProvisioningResultDispatcher : BackgroundService
 
         foreach (var job in jobs)
         {
-            var order = job.OrderId.HasValue ? await db.Orders.Include(x => x.Plan).FirstOrDefaultAsync(x => x.Id == job.OrderId.Value, ct) : null;
+            var order = job.OrderId.HasValue 
+                ? await db.Orders
+                    .Include(x => x.Plan)
+                    .FirstOrDefaultAsync(x => x.Id == job.OrderId.Value, ct) 
+                : null;
+                
             if (order is null)
             {
                 job.UserNotified = true;
                 continue;
             }
 
-            if (job.Status == ProvisioningJobStatus.Succeeded && job.Type == ProvisioningJobTypes.CreateClient && !string.IsNullOrWhiteSpace(job.ResultJson))
+            if (job.Status == ProvisioningJobStatus.Succeeded && 
+                job.Type == ProvisioningJobType.CreateClient && 
+                !string.IsNullOrWhiteSpace(job.ResultJson))
             {
                 var result = JsonSerializer.Deserialize<CreateClientResult>(job.ResultJson)!;
-                if (!await db.Subscriptions.AnyAsync(x => x.ClientEmail == result.ClientEmail, ct))
+                
+                var existingSub = await db.Subscriptions
+                    .FirstOrDefaultAsync(x => x.ClientEmail == result.ClientEmail, ct);
+                    
+                if (existingSub is null)
                 {
                     var sub = new Subscription
                     {
+                        Id = Guid.NewGuid(),
                         TelegramUserId = order.TelegramUserId,
                         OrderId = order.Id,
+                        AgentId = job.TargetAgentId,
                         ClientEmail = result.ClientEmail,
                         ClientUuid = result.ClientUuid,
                         SubId = result.SubId,
@@ -70,30 +86,37 @@ public sealed class ProvisioningResultDispatcher : BackgroundService
                         ExpireAtUtc = result.ExpireAtUtc,
                         TrafficGb = result.TrafficGb,
                         Status = SubscriptionStatus.Active,
-                        AssignedInboundTags = result.AssignedInboundTags
+                        AssignedInboundTags = JsonSerializer.Serialize(result.AssignedInboundTags),
+                        CreatedAtUtc = DateTimeOffset.UtcNow
                     };
                     db.Subscriptions.Add(sub);
                 }
 
                 order.Status = OrderStatus.Completed;
                 order.CompletedAtUtc = DateTimeOffset.UtcNow;
-                await tg.SendTextAsync(order.TelegramUserId, $@"✅ سرویس شما فعال شد.
+                
+                await tg.SendTextAsync(order.TelegramUserId, 
+                    $@"✅ سرویس شما فعال شد.
 
-پلن: {order.Plan?.Name}
-اعتبار تا: {result.ExpireAtUtc:yyyy-MM-dd HH:mm} UTC
-حجم: {result.TrafficGb}GB
+📦 پلن: {order.Plan?.Name}
+⏰ اعتبار تا: {result.ExpireAtUtc:yyyy-MM-dd HH:mm} UTC
+📊 حجم: {result.TrafficGb}GB
+🔗 لینک اشتراک:
+`{result.SubscriptionUrl}`
 
-لینک subscription:
-{result.SubscriptionUrl}", ct);
+نکته: لینک را در کلاینت خود وارد کنید.", ct);
             }
             else
             {
                 order.Status = OrderStatus.Failed;
+                
                 await tg.SendTextAsync(order.TelegramUserId,
                     $@"❌ ساخت سرویس با خطا مواجه شد.
-Order: {order.Id}
-Error: {job.ErrorMessage ?? "Unknown"}
-پشتیبانی موضوع را بررسی می‌کند.", ct);
+
+🆔 Order: {order.Id}
+❌ خطا: {job.ErrorMessage ?? "Unknown"}
+
+پشتیبانی موضوع را بررسی می‌کند. لطفاً صبور باشید.", ct);
             }
 
             job.UserNotified = true;

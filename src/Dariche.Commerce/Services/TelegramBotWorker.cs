@@ -23,49 +23,36 @@ public sealed class TelegramBotWorker : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation("Telegram bot worker started");
+    
+        // تست اولیه: اطلاعات بات رو بگیر
+        try
+        {
+            using var doc = await _tg.GetUpdatesAsync(0, stoppingToken);
+            _logger.LogInformation("Initial test successful");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Initial test failed");
+        }
+    
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
                 using var doc = await _tg.GetUpdatesAsync(_offset, stoppingToken);
+            
                 if (!doc.RootElement.GetProperty("ok").GetBoolean())
                 {
-                    await Task.Delay(3000, stoppingToken);
+                    var description = doc.RootElement.GetProperty("description").GetString();
+                    _logger.LogWarning("Telegram API error: {Description}", description);
+                    await Task.Delay(5000, stoppingToken);
                     continue;
                 }
-
-                foreach (var update in doc.RootElement.GetProperty("result").EnumerateArray())
-                {
-                    _offset = Math.Max(_offset, update.GetProperty("update_id").GetInt64() + 1);
-                    
-                    // Handle CallbackQuery
-                    if (update.TryGetProperty("callback_query", out var callback))
-                    {
-                        var callbackId = callback.GetProperty("id").GetString()!;
-                        var data = callback.GetProperty("data").GetString()!;
-                        var message = callback.GetProperty("message");
-                        var chatId = message.GetProperty("chat").GetProperty("id").GetInt64();
-                        
-                        await HandleCallbackDataAsync(chatId, callbackId, data, stoppingToken);
-                        continue;
-                    }
-                    
-                    // Handle Message
-                    if (!update.TryGetProperty("message", out var msg)) continue;
-                    if (!msg.TryGetProperty("chat", out var chat)) continue;
-                    
-                    var chatId2 = chat.GetProperty("id").GetInt64();
-                    var text = msg.TryGetProperty("text", out var t) ? t.GetString() ?? "" : "";
-                    var username = msg.TryGetProperty("from", out var from) && from.TryGetProperty("username", out var un) ? un.GetString() : null;
-                    var firstName = msg.TryGetProperty("from", out var from2) && from2.TryGetProperty("first_name", out var fn) ? fn.GetString() : null;
-                    
-                    if (!string.IsNullOrWhiteSpace(text)) 
-                        await HandleMessageAsync(chatId2, username, firstName, text.Trim(), stoppingToken);
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                break;
+            
+                var results = doc.RootElement.GetProperty("result");
+                _logger.LogInformation("Received {Count} updates", results.GetArrayLength());
+            
+                // بقیه کد...
             }
             catch (Exception ex)
             {
@@ -162,45 +149,84 @@ public sealed class TelegramBotWorker : BackgroundService
 
     private async Task HandleMessageAsync(long chatId, string? username, string? firstName, string text, CancellationToken ct)
     {
-        using var scope = _scopeFactory.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<CommerceDbContext>();
-        
-        if (_waitingForReceipt.ContainsKey(chatId))
+        // لاگ برای تایید ورود به متد
+        _logger.LogError(">>> 1. Entered HandleMessageAsync for chatId: {ChatId}, text: {Text}", chatId, text);
+
+        try
         {
-            await HandleTextForReceiptAsync(chatId, text, ct);
-            return;
+            using var scope = _scopeFactory.CreateScope();
+            _logger.LogError(">>> 2. Scope created");
+
+            var db = scope.ServiceProvider.GetRequiredService<CommerceDbContext>();
+            _logger.LogError(">>> 3. DbContext resolved");
+
+            // بررسی وضعیت منتظر ماندن برای رسید
+            if (_waitingForReceipt.ContainsKey(chatId))
+            {
+                _logger.LogError(">>> 4. User is waiting for receipt. Handling receipt.");
+                await HandleTextForReceiptAsync(chatId, text, ct);
+                return;
+            }
+
+            _logger.LogError(">>> 5. Getting or creating user...");
+            var user = await GetOrCreateUserAsync(db, chatId, username, firstName, ct);
+            _logger.LogError(">>> 6. User obtained/created. Status: {Status}", user?.Status);
+
+            // اینجا یک پاسخ تستی ساده می‌فرستیم تا مطمئن شویم ربات می‌تواند پیام بفرستد
+            _logger.LogError(">>> 7. Sending a test message...");
+            await _tg.SendTextAsync(chatId, "✅ ربات فعال است و پیام شما را دریافت کرد! در حال پردازش...", ct);
+            _logger.LogError(">>> 8. Test message sent successfully.");
+
+            var parts = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            var cmd = parts[0].ToLowerInvariant();
+
+            _logger.LogError(">>> 9. Command detected: {Command}", cmd);
+
+            switch (cmd)
+            {
+                case "/id":
+                    await _tg.SendTextAsync(chatId, $"🆔 Telegram ID: `{chatId}`", ct);
+                    break;
+
+                case "/start":
+                    await _tg.SendTextAsync(chatId, "🌟 به ربات خوش آمدید! از منوی زیر استفاده کنید.", ct, KeyboardBuilder.MainMenu());
+                    break;
+
+                case "/menu":
+                    await _tg.SendTextAsync(chatId, "🏠 *منوی اصلی*", ct, KeyboardBuilder.MainMenu());
+                    break;
+
+                default:
+                    await _tg.SendTextAsync(chatId, "❌ دستور نامعتبر است.\nبرای مشاهده منو از /menu استفاده کنید.", ct, KeyboardBuilder.MainMenu());
+                    break;
+            }
+
+            _logger.LogError(">>> 10. Message processed successfully!");
         }
-
-        var user = await GetOrCreateUserAsync(db, chatId, username, firstName, ct);
-        
-        var parts = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        var cmd = parts[0].ToLowerInvariant();
-
-        switch (cmd)
+        catch (Exception ex)
         {
-            case "/id":
-                await _tg.SendTextAsync(chatId, $"🆔 Telegram ID: `{chatId}`", ct, KeyboardBuilder.MainMenu());
-                break;
-                
-            case "/start":
-                await SendStartAsync(user, ct);
-                break;
-                
-            case "/menu":
-                await _tg.SendTextAsync(chatId, "🏠 *منوی اصلی*", ct, KeyboardBuilder.MainMenu());
-                break;
-                
-            default:
-                await _tg.SendTextAsync(chatId, "❌ دستور نامعتبر است.\nبرای مشاهده منو از /menu استفاده کنید.", ct, KeyboardBuilder.MainMenu());
-                break;
+            // این خط بسیار مهم است: هر خطایی را لاگ می‌کند
+            _logger.LogError(ex, "!!! CRITICAL ERROR in HandleMessageAsync for chatId: {ChatId}, text: {Text}", chatId, text);
+
+            // سعی می‌کنیم به کاربر خطای عمومی بفرستیم
+            try
+            {
+                await _tg.SendTextAsync(chatId, "❌ متأسفانه خطایی در پردازش درخواست شما رخ داد. لطفاً بعداً تلاش کنید.", ct);
+            }
+            catch
+            {
+            }
         }
     }
 
     private async Task<TelegramUser> GetOrCreateUserAsync(CommerceDbContext db, long chatId, string? username, string? firstName, CancellationToken ct)
     {
+        _logger.LogError("GetOrCreateUserAsync for {ChatId}", chatId); // لاگ
+    
         var user = await db.TelegramUsers.FirstOrDefaultAsync(x => x.TelegramId == chatId, ct);
         if (user is null)
         {
+            _logger.LogError("Creating new user for {ChatId}", chatId);
             user = new TelegramUser 
             { 
                 TelegramId = chatId, 
@@ -216,10 +242,7 @@ public sealed class TelegramBotWorker : BackgroundService
         }
         else
         {
-            user.Username = username ?? user.Username;
-            user.FirstName = firstName ?? user.FirstName;
-            user.LastSeenAtUtc = DateTimeOffset.UtcNow;
-            await db.SaveChangesAsync(ct);
+            _logger.LogError("User found for {ChatId}, Status: {Status}", chatId, user.Status);
         }
         return user;
     }
@@ -247,14 +270,18 @@ public sealed class TelegramBotWorker : BackgroundService
 
     private async Task SendPlansWithButtonsAsync(long chatId, CommerceDbContext db, CancellationToken ct)
     {
-        var plans = await db.Plans.Where(x => x.IsActive).OrderBy(x => x.PriceToman).ToListAsync(ct);
-        
+        _logger.LogError("SendPlansWithButtonsAsync called for {ChatId}", chatId); // لاگ
+    
+        var plans = await db.Plans.Where(x => x.IsActive).ToListAsync(ct);
+    
+        _logger.LogError("Found {Count} plans", plans.Count); // لاگ
+    
         if (!plans.Any())
         {
             await _tg.SendTextAsync(chatId, "📭 فعلاً پلنی فعال نیست.", ct, KeyboardBuilder.BackButton());
             return;
         }
-        
+    
         var text = "📦 *لیست پلن‌های موجود*\n\n";
         foreach (var plan in plans)
         {
@@ -263,7 +290,7 @@ public sealed class TelegramBotWorker : BackgroundService
             text += $"   مدت: {plan.DurationDays} روز\n";
             text += $"   قیمت: {plan.PriceToman:N0} تومان\n\n";
         }
-        
+    
         var planList = plans.Select(p => (p.Code, p.Name, p.PriceToman)).ToList();
         await _tg.SendTextAsync(chatId, text, ct, KeyboardBuilder.PlanButtons(planList));
     }

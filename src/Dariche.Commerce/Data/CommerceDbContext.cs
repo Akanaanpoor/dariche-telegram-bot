@@ -28,11 +28,7 @@ public sealed class CommerceDbContext : DbContext
             x.Property(y => y.TelegramId).IsRequired();
         });
         
-        b.Entity<Plan>(x =>
-        {
-            x.HasKey(y => y.Id);
-            x.HasIndex(y => y.Code).IsUnique();
-        });
+        
         
         b.Entity<InboundGroup>(x =>
         {
@@ -65,24 +61,26 @@ public sealed class CommerceDbContext : DbContext
                 .OnDelete(DeleteBehavior.SetNull);
         });
         
-        b.Entity<Order>(x =>
-        {
-            x.HasKey(y => y.Id);
-            x.HasOne(y => y.TelegramUser)
-                .WithMany()
-                .HasForeignKey(y => y.TelegramUserId)
-                .HasPrincipalKey(y => y.TelegramId);
-                
-            x.HasOne(y => y.Plan)
-                .WithMany()
-                .HasForeignKey(y => y.PlanId);
-        });
         
         b.Entity<Settings>(x =>
         {
             x.HasKey(y => y.Id);
             x.Property(y => y.Key).HasMaxLength(200);
             x.HasIndex(y => y.Key).IsUnique();
+        });
+        b.Entity<Order>(x =>
+        {
+            x.HasOne(o => o.Plan)
+                .WithMany(p => p.Orders) // فرض بر این است که Plan یک List<Order> دارد
+                .HasForeignKey(o => o.PlanId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+    
+        b.Entity<Plan>(x =>
+        {
+            x.HasMany(p => p.Orders)
+                .WithOne(o => o.Plan)
+                .HasForeignKey(o => o.PlanId);
         });
     }
 }

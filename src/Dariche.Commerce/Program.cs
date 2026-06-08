@@ -13,7 +13,7 @@ builder.Configuration.AddEnvironmentVariables();
 builder.Services.AddDbContext<CommerceDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
 
-// Options - مهم
+// Options
 builder.Services.Configure<BotOptions>(builder.Configuration.GetSection("Bot"));
 builder.Services.Configure<AgentOptions>(builder.Configuration.GetSection("Agent"));
 
@@ -23,8 +23,8 @@ builder.Services.AddMemoryCache();
 builder.Services.AddScoped<ISettingsService, SettingsService>();
 builder.Services.AddScoped<ProvisioningJobFactory>();
 
-// Hosted Services
-// builder.Services.AddHostedService<TelegramBotWorker>();
+// Hosted Services - این دو خط مهم هستند
+builder.Services.AddHostedService<TelegramBotWorker>();
 builder.Services.AddHostedService<ProvisioningResultDispatcher>();
 
 // API

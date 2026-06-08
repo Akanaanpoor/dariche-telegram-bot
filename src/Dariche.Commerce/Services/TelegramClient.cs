@@ -24,8 +24,18 @@ public sealed class TelegramClient
     public async Task<JsonDocument> GetUpdatesAsync(long offset, CancellationToken ct)
     {
         var url = Api($"getUpdates?timeout=25&offset={offset}&allowed_updates=['message','callback_query']");
+        _logger.LogInformation("Calling Telegram API: {Url}", url);
+    
         using var resp = await _http.GetAsync(url, ct);
         var text = await resp.Content.ReadAsStringAsync(ct);
+    
+        _logger.LogInformation("Telegram response: {Response}", text);
+    
+        if (!resp.IsSuccessStatusCode)
+        {
+            _logger.LogError("Telegram API error: {StatusCode} {Response}", resp.StatusCode, text);
+        }
+    
         resp.EnsureSuccessStatusCode();
         return JsonDocument.Parse(text);
     }

@@ -1,0 +1,32 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-dariche_commerce}
+      POSTGRES_USER: ${POSTGRES_USER:-dariche}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dariche}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"
+
+  commerce:
+    build:
+      context: ..
+      dockerfile: deploy/commerce.Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    environment:
+      ConnectionStrings__Default: Host=postgres;Port=5432;Database=${POSTGRES_DB:-dariche_commerce};Username=${POSTGRES_USER:-dariche};Password=${POSTGRES_PASSWORD:-dariche}
+      Bot__Token: ${BOT_TOKEN}
+      Bot__AdminTelegramIds__0: ${ADMIN_TELEGRAM_IDS_FIRST:-0}
+      Bot__ManualPaymentText: ${MANUAL_PAYMENT_TEXT:-After payment send /paid ORDER_ID receipt.}
+      Agent__DefaultAgentId: ${AGENT_ID:-iran-main}
+      Agent__DefaultAgentSecret: ${AGENT_SECRET:-CHANGE_ME}
+    ports:
+      - "127.0.0.1:8080:8080"
+
+volumes:
+  postgres_data:

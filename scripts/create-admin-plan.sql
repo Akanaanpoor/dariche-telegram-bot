@@ -1,0 +1,2 @@
+-- Optional manual SQL reference. The application seeds a default plan and default inbound group automatically.
+-- Use EF Core/your admin commands later for production changes.
